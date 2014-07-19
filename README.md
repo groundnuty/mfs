@@ -11,7 +11,11 @@ Currently supported features:
 - media files supplied via fuse are full fledged mp3 files that can be open by vlc and itunes. 
 
 To run it:
- ```python main.py dest```
+
+ ```
+ mkdir dest
+ python main.py dest
+ ```
 
 
 Dependencies:
