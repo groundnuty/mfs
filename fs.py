@@ -15,8 +15,10 @@ if not hasattr(__builtins__, 'bytes'):
     bytes = str
 
 class AnnexFS(LoggingMixIn, Operations):
-    def __init__(self):
-        self.src_path = ur"/Volumes/HDD/Music/annex/"
+    def __init__(self, src_path):
+        if not os.path.isdir(src_path):
+            raise StandardError("Source directory does not exist.")
+        self.src_path = src_path.encode("utf-8")
   
     def open(self, path, flags):
         handlers = {
@@ -50,7 +52,7 @@ class AnnexFS(LoggingMixIn, Operations):
         
     def readdir(self, path, fh):
         base_path = self.src_path + os.sep + path + os.sep
-        
+        print base_path
         entries = os.listdir(base_path)
         
         files = [f for f in entries if os.path.isfile(base_path + f) if not f.lower().endswith(".jpg")]
@@ -104,9 +106,9 @@ class AnnexFS(LoggingMixIn, Operations):
 
 
 if __name__ == '__main__':
-    if len(argv) != 2:
-        print('usage: %s <mountpoint>' % argv[0])
+    if len(argv) != 3:
+        print('usage: %s <source dir> <mountpoint>' % argv[0])
         exit(1)
 
     logging.getLogger().setLevel(logging.DEBUG)
-    fuse = FUSE(AnnexFS(), argv[1], foreground=True, encoding="utf-8", volname="MusicFS", debug=True)
+    fuse = FUSE(AnnexFS(argv[1]), argv[2], foreground=True, encoding="utf-8", volname="MusicFS", debug=True)
