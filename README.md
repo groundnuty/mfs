@@ -1,9 +1,13 @@
 mfs (music,meta,media file system)
 ===
 
-Target Version: 0.1 
+Version: 0.2
 
-Currently supported features:
+- mirroring a source catalog
+- replacing broken symlinks with generated mp3 files 
+
+
+Version: 0.1 
 
 - readonly access to fuse files
 - static database based on yaml file attached binary data
@@ -13,10 +17,9 @@ Currently supported features:
 To run it:
 
  ```
- mkdir dest
- python main.py dest
+ mkdir /tmp/dest
+ python main.py data /tmp/pdest
  ```
-
 
 Dependencies:
 - pyfuse

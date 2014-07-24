@@ -7,23 +7,10 @@ import traceback
 
 def loadfiles(filename):
     import yaml
-    head, tail = os.path.split(filename)
     fh = open(filename)
-
-    files = dict()
-    #dict with filenames as keys is easier to use later
-    for f in yaml.safe_load(fh)['files']:
-
-        #the total file length is computer dynamically
-        #as I wanted to keep yaml simple for now
-        f['id3'] = os.path.join(head,f['id3'])
-        f['filler'] = os.path.join(head,f['filler'])
-        f['len'] = os.path.getsize(f['id3']) + \
-                   os.path.getsize(f['filler'])
-
-        files[f['filename']] = f
+    config = yaml.safe_load(fh)['config']
     fh.close()
-    return files
+    return config
 
 def logcall(f):
     log = logging.getLogger(f.__name__)
@@ -56,13 +43,3 @@ def logcall(f):
         ))
         return ret
     return logged
-
-def read_from_string(text, size, offset):
-        slen = len(text)
-        if offset < slen:
-            if offset + size > slen:
-                size = slen - offset
-            buf = text[offset:offset+size]
-        else:
-            buf = ''
-        return buf
