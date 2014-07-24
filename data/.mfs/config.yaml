@@ -1,0 +1,8 @@
+# Editors dont cope too well with binarry data in text files
+fillers:
+  - &noise .mfs/filers/filler.bin
+  - &magic .mfs/filers/magic.bin
+
+config:
+  filler: *noise
+
