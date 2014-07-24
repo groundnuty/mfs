@@ -20,7 +20,7 @@ class MFS(Operations):
         self.src_path = src_path
 
     def _which_case(self, path):
-        base_path = self.src_path + path
+        base_path = self.file_path(path)
         if os.path.islink(base_path) and path.lower().endswith(".mp3"):
             if os.path.exists(base_path):
                 return "MP3_EXISTING"
@@ -29,38 +29,57 @@ class MFS(Operations):
         else:
             return "PASSTHROUGH"
 
+    def meta_path(self, path):
+        return os.path.normpath(self.src_path+os.path.sep + path + os.path.sep + ".." + os.path.sep + os.readlink(self.src_path+path).replace(".git/annex/objects",".mfs/meta"))
+
+    def meta_size(self, path):
+        return os.path.getsize(self.meta_path(path))
+
+    def file_path(self, path):
+        return os.path.normpath(self.src_path + os.path.sep + path)
+
+    def filler_path(self):
+        return os.path.normpath(self.src_path+os.path.sep+self.config['filler'])
+        
+    def filler_size(self):
+        return os.path.getsize(self.filler_path())
+
     def getattr(self, path, fh=None):
         handlers = {
-                "MP3_EXISTING": self.getattr_mp3_existing,
-                "MP3_MISSING": self.getattr_mp3_missing,
-                "PASSTHROUGH": self.getattr_passthrough
+                "MP3_EXISTING": self.getattr_delinkify,
+                "MP3_MISSING":  self.getattr_mp3_missing,
+                "PASSTHROUGH":  self.getattr_passthrough
             }
         return handlers[self._which_case(path)](path, fh)
+
 
     def open(self, path, flags):
         handlers = {
                 "MP3_EXISTING": self.open_mp3_existing,
-                "MP3_MISSING":  self.open_mp3_missing,
-                "PASSTHROUGH":  self.open_passthrough
+                "MP3_MISSING":   self.open_mp3_missing,
+                "PASSTHROUGH":   self.open_passthrough
             }
         return handlers[self._which_case(path)](path, flags)
 
     def release(self, path, fh):
         return os.close(fh)
 
-    def getattr_mp3_existing(self, path, fh=None):
-        base_path = self.src_path+os.path.sep + os.readlink(self.src_path+path)
-        st = os.lstat(base_path)
+    def getattr_delinkify(self, path, fh=None):
+        base_path = self.src_path+os.path.sep + path
+        st = os.stat(base_path)
         out = dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime', 'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
         out['st_mode'] = (out['st_mode'] & ~stat.S_IFLNK) | stat.S_IFREG
         return out
 
     def getattr_mp3_missing(self, path, fh=None):
-        base_path = self.src_path+os.path.sep + os.readlink(self.src_path+path).replace("objects","meta")[0:-3]+"meta"
+        base_path = self.file_path(path)
+        meta_path = self.meta_path(path)
+
         st = os.lstat(base_path)
+
         out = dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime', 'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
         out['st_mode'] = (out['st_mode'] & ~stat.S_IFLNK) | stat.S_IFREG
-        out['st_size'] = out['st_size'] + getattr(os.lstat(self.src_path+os.path.sep+self.config['filler']),'st_size')
+        out['st_size'] = self.meta_size(path) + self.filler_size()
         return out
 
     def getattr_passthrough(self, path, fh=None):
@@ -68,74 +87,90 @@ class MFS(Operations):
         st = os.lstat(base_path)
         return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime', 'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
+
+
     def open_mp3_existing(self, path, flags):
-        base_path = self.src_path + path
-        print base_path
+        base_path = self.file_path(path)
         return os.open(base_path, flags)
 
     def open_mp3_missing(self, path, flags):
-        base_path = self.src_path+os.path.sep + os.readlink(self.src_path+path).replace("objects","meta")[0:-3]+"meta"
-        print base_path
+        base_path = self.meta_path(path)
         return os.open(base_path, flags)
 
     def open_passthrough(self, path, flags):
-        base_path = self.src_path + path
-        print "open"+base_path
+        base_path = self.file_path(path)
         return os.open(base_path, flags)
 
     def readdir(self, path, fh):
-        base_path = self.src_path + os.sep + path + os.sep
+        base_path = self.file_path(path)
         entries = os.listdir(base_path)
-        entries.remove(".mfs")
-        print entries
+        try:
+            entries.remove(".mfs")
+        except ValueError:
+            pass
         return ['.', '..'] + entries
+
+    def readlink(self, path):
+        base_path = self.file_path(path)
+        return os.readlink(base_path)
+        
 
     @logcall
     def read(self, path, size, offset, fh):
-        base_path = self.src_path + path
-        if os.path.exists(base_path):
-            #The case of existing files
-            os.lseek(fh, offset, 0)
-            return os.read(fh, size)
-        else:
-            #The case of broken symlinks
-            #First attempt to read only as much as needed
-            filler_path = self.src_path+os.path.sep+self.config['filler']
-            filler_size = getattr(os.lstat(filler_path),'st_size')
-            meta_size = getattr(os.lstat(self.src_path+os.path.sep + os.readlink(self.src_path+path).replace("objects","meta")[0:-3]+"meta"),'st_size')
+        handlers = {
+                "MP3_EXISTING": self.read_passthrough,
+                "MP3_MISSING":  self.read_mp3_missing,
+                "PASSTHROUGH":  self.read_passthrough
+            }
+        return handlers[self._which_case(path)](path, size, offset, fh)
+    
+    def read_passthrough(self, path, size, offset, fh):
+        base_path = self.file_path(path)
+        #The case of existing files
+        os.lseek(fh, offset, 0)
+        return os.read(fh, size)
+    
+    
+    def read_mp3_missing(self, path, size, offset, fh):
+        base_path = self.file_path(path)
+        #The case of broken symlinks
+        #First attempt to read only as much as needed
+        filler_path = self.filler_path()
+        filler_size = self.filler_size()
+        meta_size  = self.meta_size(path)
 
-            readdata=""
-            meta_size -= offset
-            #If the offset is smaller then size of the meta then we need to read some meta
-            if meta_size > 0:
-                os.lseek(fh,offset,0)
-                #If the size of what we want to read is smaller then remaining meta we need only to read meta
-                if size-meta_size <= 0:
-                    readdata += os.read(fh,size)
-                    #Set remaining size to read to 0
-                    size=0
-                else:
-                    #Otherwise we read what we have to and substract that from size
-                    readdata += os.read(fh,meta_size)
-                    size-=meta_size
+        readdata=""
+        meta_size -= offset
+        #If the offset is smaller then size of the meta then we need to read some meta
+        if meta_size > 0:
+            os.lseek(fh,offset,0)
+            #If the size of what we want to read is smaller then remaining meta we need only to read meta
+            if size-meta_size <= 0:
+                readdata += os.read(fh,size)
+                #Set remaining size to read to 0
+                size=0
             else:
-                #Offset was is larger, no need to read meta, but substract remaining offset of filler size
-                filler_size += meta_size
+                #Otherwise we read what we have to and substract that from size
+                readdata += os.read(fh,meta_size)
+                size-=meta_size
+        else:
+            #Offset was is larger, no need to read meta, but substract remaining offset of filler size
+            filler_size += meta_size
 
-            #Move the offset to the begining of filler
-            offset-=meta_size
+        #Move the offset to the begining of filler
+        offset-=meta_size
 
-            #If we still have something to read
-            if size>0:
-                fillerh = open(filler_path)
-                #If the offset is still non 0 then move
-                if offset>0:
-                    fillerh.seek(offset)
-                #Read remaining size, assuming its >= then total filler_size-offset
-                readdata+=fillerh.read(size)
-                fillerh.close()
+        #If we still have something to read
+        if size>0:
+            fillerh = open(filler_path)
+            #If the offset is still non 0 then move
+            if offset>0:
+                fillerh.seek(offset)
+            #Read remaining size, assuming its >= then total filler_size-offset
+            readdata+=fillerh.read(size)
+            fillerh.close()
 
-            return readdata
+        return readdata
 
     # Disable unused operations:
     # Not sure if we need to disable them
