@@ -27,3 +27,6 @@ Dependencies:
 - mutagen
 
 Tested with python 2.7.5 only on osx 10.9.2 with "fuse for osx" 2.7.0
+
+
+Icon by iconcubic (http://iconcubic.deviantart.com)
