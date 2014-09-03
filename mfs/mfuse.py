@@ -132,30 +132,30 @@ class MFS(Operations):
     
     
     def read_mp3_missing(self, path, size, offset, fh):
+        _size = size
+        _offset = offset
         base_path = self.file_path(path)
         #The case of broken symlinks
         #First attempt to read only as much as needed
         filler_path = self.filler_path()
         filler_size = self.filler_size()
+        # print filler_size
         meta_size  = self.meta_size(path)
 
         readdata=""
-        meta_size -= offset
+        
+        # meta_size -= offset
         #If the offset is smaller then size of the meta then we need to read some meta
-        if meta_size > 0:
+        if offset < meta_size:
             os.lseek(fh,offset,0)
             #If the size of what we want to read is smaller then remaining meta we need only to read meta
-            if size-meta_size <= 0:
-                readdata += os.read(fh,size)
-                #Set remaining size to read to 0
-                size=0
-            else:
-                #Otherwise we read what we have to and substract that from size
-                readdata += os.read(fh,meta_size)
-                size-=meta_size
-        else:
-            #Offset was is larger, no need to read meta, but substract remaining offset of filler size
-            filler_size += meta_size
+            br = os.read(fh,min(size-offset, meta_size-offset))
+            readdata += br
+            #Set remaining size to read to 0
+            # print "br: ", len(br), " req ",min(size-offset, meta_size-offset),
+            if len(br) != min(size-offset, meta_size-offset):
+                print "This is fatal error"
+            size-=len(br)
 
         #Move the offset to the begining of filler
         offset-=meta_size
@@ -167,9 +167,16 @@ class MFS(Operations):
             if offset>0:
                 fillerh.seek(offset)
             #Read remaining size, assuming its >= then total filler_size-offset
-            readdata+=fillerh.read(size)
+            while size > 0:
+                br = fillerh.read(size)
+                readdata+= br
+                size -= len(br)
+                # print "2 br: ", len(br), " req ", size
+                if len(br) == 0:
+                    break
             fillerh.close()
-
+        # print len(readdata), " expected ", size
+        print path  , _size, _offset, len(readdata)
         return readdata
 
     # Disable unused operations:
